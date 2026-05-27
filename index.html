@@ -66,8 +66,23 @@
   .topbar .brand { font-family: var(--font-display); font-weight: 600; font-size: 16px; letter-spacing: -0.01em; color: var(--ink); }
   .topbar .dot   { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-quiet); }
   .topbar .doc   { font-size: 13px; color: var(--ink-2); }
-  .topbar .doc .name { color: var(--ink); font-weight: 500; }
+  .topbar .doc .name {
+    color: var(--ink); font-weight: 500;
+    border-radius: var(--radius); padding: 1px 4px; margin: 0 -4px;
+    cursor: text; transition: background .12s;
+  }
+  .topbar .doc .name:hover { background: var(--hover); }
+  .topbar .doc .name[title]::after { content: " ✎"; font-size: 10px; color: var(--ink-quiet); opacity: 0; transition: opacity .12s; }
+  .topbar .doc .name:hover[title]::after { opacity: 1; }
   .topbar .doc .meta { color: var(--ink-quiet); margin-left: 8px; font-size: 12px; }
+  .doc-name-input {
+    font-family: var(--font-ui); font-size: 13px; font-weight: 500;
+    color: var(--ink); background: #fff;
+    border: 1px solid var(--navy); border-radius: var(--radius);
+    box-shadow: 0 0 0 3px var(--navy-pale);
+    padding: 0 5px; height: 22px; outline: none;
+    min-width: 80px; max-width: 240px;
+  }
   .topbar .spacer { flex: 1; }
   .topbar .top-actions { display: flex; gap: 6px; }
 
@@ -348,6 +363,8 @@
       <div style="position:relative;">
         <button class="btn primary sm" id="btn-export">Export ▾</button>
         <div class="export-dropdown" id="export-dropdown" style="display:none;">
+          <div class="ditem" data-export="nyt" style="font-weight:600;color:var(--navy);">Export for Submission…</div>
+          <div class="dsep"></div>
           <div class="ditem" data-export="pdf">PDF (print)</div>
           <div class="ditem" data-export="png">PNG image</div>
           <div class="dsep"></div>
@@ -1011,7 +1028,7 @@ function renderGridDOM(host, g, opts={}) {
     item.addEventListener('click', e => {
       e.stopPropagation();
       exportDropdown.style.display = 'none';
-      const actions = {pdf:exportPDF, png:exportPNG, puz:exportPUZ, ipuz:exportIPUZ};
+      const actions = {pdf:exportPDF, png:exportPNG, puz:exportPUZ, ipuz:exportIPUZ, nyt:showNYTSubmissionModal};
       actions[item.dataset.export]?.();
     });
   });
@@ -1106,6 +1123,73 @@ function renderGridDOM(host, g, opts={}) {
     m.addEventListener('click',e=>{if(e.target===m)closeLoadModal();});
   }
   function closeLoadModal() { const el=document.getElementById('load-modal'); if(el)el.remove(); }
+
+  /* ── Inline rename (double-click the doc name in topbar) ── */
+  function attachRenameListener() {
+    const nameEl = document.getElementById('doc-name');
+    if (!nameEl) return;
+    nameEl.title = 'Double-click to rename';
+    nameEl.addEventListener('dblclick', startRename);
+  }
+
+  function startRename() {
+    const nameEl = document.getElementById('doc-name');
+    if (!nameEl) return;
+    const oldName = currentDraftName;
+    let committed = false;
+
+    const input = document.createElement('input');
+    input.id        = 'doc-name-input';
+    input.className = 'doc-name-input';
+    input.value     = oldName;
+    input.style.width = Math.max(80, Math.min(240, oldName.length * 8 + 24)) + 'px';
+    nameEl.replaceWith(input);
+    input.focus();
+    input.select();
+
+    function restoreSpan(name) {
+      const span = document.createElement('span');
+      span.className   = 'name';
+      span.id          = 'doc-name';
+      span.textContent = name;
+      input.replaceWith(span);
+      attachRenameListener();
+    }
+
+    function commit() {
+      if (committed) return;
+      committed = true;
+      const newName = input.value.trim() || oldName;
+      currentDraftName = newName;
+      try {
+        const drafts = getDrafts();
+        if (oldName !== newName && drafts[oldName]) {
+          drafts[newName] = {...drafts[oldName], savedAt: Date.now()};
+          delete drafts[oldName];
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(drafts));
+        }
+        const as = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || 'null');
+        if (as) { as.name = newName; localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(as)); }
+      } catch(_) {}
+      restoreSpan(newName);
+      updateDocMeta();
+      if (newName !== oldName) showToast(`Renamed to "${newName}"`);
+    }
+
+    function cancel() {
+      if (committed) return;
+      committed = true;
+      restoreSpan(oldName);
+    }
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+    });
+    input.addEventListener('blur', commit);
+  }
+
+  attachRenameListener();
 
   document.getElementById('btn-new').addEventListener('click', () => {
     const hasContent = state.grid.flat().some(c => c.black || c.letter);
@@ -1210,6 +1294,259 @@ function renderGridDOM(host, g, opts={}) {
   document.getElementById('export-ipuz').addEventListener('click', exportIPUZ);
   document.getElementById('export-puz').addEventListener('click',  exportPUZ);
   document.getElementById('export-pdf').addEventListener('click',  exportPDF);
+
+  /* ═══════════════════════════════════════════════
+     NYT / Submission Export
+     ═══════════════════════════════════════════════ */
+  function showNYTSubmissionModal() {
+    closeNYTSubmissionModal();
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem('crossword-submitter') || '{}'); } catch(_) {}
+
+    const m = document.createElement('div');
+    m.id = 'nyt-modal';
+    m.className = 'modal-overlay';
+    m.style.cssText = 'position:absolute;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:rgba(10,10,10,0.32);';
+    m.innerHTML = `
+      <div class="modal" style="width:440px;">
+        <h3>Export for Submission</h3>
+        <p>Your contact details will appear in the PDF header, as required by the <em>New York Times</em> and other publishers. They're saved locally so you only need to fill them in once.</p>
+        <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:22px;">
+          <div class="field">
+            <label>Full name</label>
+            <input class="input" id="nyt-name" value="${(saved.name||'').replace(/"/g,'&quot;')}" placeholder="Jane Smith" style="width:100%;" autocomplete="name">
+          </div>
+          <div class="field">
+            <label>Street address</label>
+            <input class="input" id="nyt-street" value="${(saved.street||'').replace(/"/g,'&quot;')}" placeholder="123 Main St." style="width:100%;" autocomplete="street-address">
+          </div>
+          <div class="field">
+            <label>City, State, ZIP</label>
+            <input class="input" id="nyt-city" value="${(saved.city||'').replace(/"/g,'&quot;')}" placeholder="New York, NY 10001" style="width:100%;">
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input class="input" id="nyt-email" value="${(saved.email||'').replace(/"/g,'&quot;')}" placeholder="you@example.com" style="width:100%;" autocomplete="email" type="email">
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn" id="nyt-cancel-btn">Cancel</button>
+          <button class="btn primary" id="nyt-confirm-btn">
+            <svg class="ic" viewBox="0 0 16 16"><path d="M2 10v3h12v-3"/><path d="M8 2v7m-3-3 3 3 3-3"/></svg>
+            Generate PDF
+          </button>
+        </div>
+      </div>`;
+    document.getElementById('app-live').appendChild(m);
+
+    const nameInput = document.getElementById('nyt-name');
+    nameInput.focus();
+
+    document.getElementById('nyt-cancel-btn').onclick = closeNYTSubmissionModal;
+    document.getElementById('nyt-confirm-btn').onclick = () => {
+      const info = {
+        name:   document.getElementById('nyt-name').value.trim(),
+        street: document.getElementById('nyt-street').value.trim(),
+        city:   document.getElementById('nyt-city').value.trim(),
+        email:  document.getElementById('nyt-email').value.trim(),
+      };
+      try { localStorage.setItem('crossword-submitter', JSON.stringify(info)); } catch(_) {}
+      closeNYTSubmissionModal();
+      exportNYTSubmission(info);
+    };
+    // Enter key on last field submits
+    document.getElementById('nyt-email').addEventListener('keydown', e => {
+      if (e.key === 'Enter') document.getElementById('nyt-confirm-btn').click();
+    });
+    m.addEventListener('click', e => { if (e.target === m) closeNYTSubmissionModal(); });
+  }
+
+  function closeNYTSubmissionModal() {
+    const el = document.getElementById('nyt-modal');
+    if (el) el.remove();
+  }
+
+  function exportNYTSubmission(info) {
+    const nums = numberGrid(state.grid);
+    const acr  = entriesAcross(state.grid, nums);
+    const dn   = entriesDown(state.grid,   nums);
+    const CELL = 32;
+
+    // Filled grid HTML (letters visible, for editor review)
+    let gh = '';
+    for (let r = 0; r < state.rows; r++) {
+      for (let c = 0; c < state.cols; c++) {
+        const cell = state.grid[r][c];
+        gh += `<div class="cell${cell.black?' b':''}">`
+            + (nums[r][c] ? `<span class="n">${nums[r][c]}</span>` : '')
+            + (!cell.black && cell.letter ? `<span class="l">${cell.letter}</span>` : '')
+            + `</div>`;
+      }
+    }
+
+    // Extract the filled answer for an entry
+    function getAnswer(e, dir) {
+      let ans = '';
+      if (dir === 'A') for (let k = 0; k < e.len; k++) ans += (state.grid[e.row][e.col+k].letter || '_');
+      else             for (let k = 0; k < e.len; k++) ans += (state.grid[e.row+k][e.col].letter || '_');
+      return ans;
+    }
+
+    // Clue row: number | clue text | ANSWER
+    const clueRow = (e, dk) => {
+      const clue   = state.clues[`${dk}${e.num}`] || '';
+      const answer = getAnswer(e, dk);
+      return `<div class="cr">
+        <span class="cn">${e.num}</span>
+        <span class="ct">${clue ? clue.replace(/</g,'&lt;') : '<em>no clue entered</em>'}</span>
+        <span class="ca">${answer}</span>
+      </div>`;
+    };
+
+    // Contact block
+    const contactLines = [info.name, info.street, info.city, info.email].filter(Boolean);
+    const contactHTML  = contactLines.map(s => `<div>${s.replace(/</g,'&lt;')}</div>`).join('');
+
+    const gridW = state.cols * CELL;
+
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>${currentDraftName} — Submission</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:wght@500;600&display=swap" rel="stylesheet">
+<style>
+@page { size: letter; margin: 0.75in; }
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  font-family: 'Inter', -apple-system, Helvetica, sans-serif;
+  font-size: 11px;
+  color: #0A0A0A;
+  background: #fff;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Contact block ── */
+.contact {
+  margin-bottom: 28px;
+  line-height: 1.8;
+  font-size: 11px;
+  color: #3A3A38;
+}
+
+/* ── Puzzle title ── */
+.puzzle-title {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #0A0A0A;
+  margin-bottom: 3px;
+}
+.puzzle-meta {
+  font-size: 11px;
+  color: #6A6A66;
+  margin-bottom: 20px;
+  letter-spacing: 0.02em;
+}
+
+/* ── Grid ── */
+.grid-wrap { margin-bottom: 0; }
+.grid {
+  display: grid;
+  grid-template-columns: repeat(${state.cols}, ${CELL}px);
+  grid-template-rows:    repeat(${state.rows}, ${CELL}px);
+  border: 2.5px solid #0A0A0A;
+  background: #0A0A0A;
+  gap: 1px;
+  width: fit-content;
+}
+.cell { width: ${CELL}px; height: ${CELL}px; background: #fff; position: relative; }
+.cell.b { background: #0A0A0A; }
+.cell .n {
+  position: absolute; top: 2px; left: 2.5px;
+  font-size: 7.5px; font-weight: 600; line-height: 1;
+  color: #3A3A38;
+  font-feature-settings: "tnum" 1;
+}
+.cell .l {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: ${Math.round(CELL * 0.48)}px;
+  font-weight: 700;
+  color: #0A0A0A;
+  padding-top: 5px;
+  letter-spacing: 0.01em;
+}
+
+/* ── Clue pages ── */
+.clues-section {
+  page-break-before: always;
+}
+.dir-heading {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6A6A66;
+  border-bottom: 1.5px solid #0A0A0A;
+  padding-bottom: 4px;
+  margin-bottom: 6px;
+  margin-top: 20px;
+}
+.dir-heading:first-child { margin-top: 0; }
+.cr {
+  display: grid;
+  grid-template-columns: 22px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 2.5px 0;
+  border-bottom: 1px solid #E7E5DF;
+  line-height: 1.55;
+  page-break-inside: avoid;
+}
+.cn { font-weight: 700; text-align: right; font-feature-settings: "tnum" 1; font-size: 10.5px; color: #0A0A0A; }
+.ct { font-size: 10.5px; color: #3A3A38; }
+.ct em { color: #9A9A95; font-style: italic; }
+.ca {
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-size: 10px;
+  color: #000080;
+  white-space: nowrap;
+  font-feature-settings: "tnum" 1;
+}
+</style>
+</head>
+<body>
+
+<div class="contact">${contactHTML || '<div style="color:#9A9A95;font-style:italic;">No contact information provided</div>'}</div>
+
+<div class="puzzle-title">${currentDraftName.replace(/</g,'&lt;')}</div>
+<div class="puzzle-meta">${PRESETS[state.rows]||'Custom'} &middot; ${state.cols}&thinsp;&times;&thinsp;${state.rows}</div>
+
+<div class="grid-wrap">
+  <div class="grid">${gh}</div>
+</div>
+
+<div class="clues-section">
+  <div class="dir-heading">Across</div>
+  ${acr.map(e => clueRow(e,'A')).join('\n  ')}
+  <div class="dir-heading">Down</div>
+  ${dn.map(e => clueRow(e,'D')).join('\n  ')}
+</div>
+
+<script>
+  window.addEventListener('load', () => {
+    // Small delay to let Google Fonts load before printing
+    setTimeout(() => window.print(), 600);
+  });
+<\/script>
+</body></html>`);
+    win.document.close();
+  }
 
   /* ═══════════════════════════════════════════════
      Init
