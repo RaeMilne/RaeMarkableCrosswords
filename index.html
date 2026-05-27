@@ -340,6 +340,8 @@
     </div>
     <div class="spacer"></div>
     <div class="top-actions">
+      <button class="btn ghost sm" id="btn-new">Create new puzzle</button>
+      <div style="width:1px;height:18px;background:var(--rule-2);margin:0 2px;align-self:center;"></div>
       <button class="btn ghost sm" id="btn-undo" disabled title="Undo (⌘Z)">Undo</button>
       <button class="btn ghost sm" id="btn-redo" disabled title="Redo (⌘⇧Z)">Redo</button>
       <button class="btn sm"         id="btn-preview">Preview</button>
@@ -1105,6 +1107,22 @@ function renderGridDOM(host, g, opts={}) {
   }
   function closeLoadModal() { const el=document.getElementById('load-modal'); if(el)el.remove(); }
 
+  document.getElementById('btn-new').addEventListener('click', () => {
+    const hasContent = state.grid.flat().some(c => c.black || c.letter);
+    if (hasContent && !confirm('Start a new puzzle? Your current work will be lost unless you save it first.')) return;
+    state.grid = makeBlankGrid(state.rows, state.cols);
+    state.clues = {};
+    state.selected = null;
+    state.direction = 'A';
+    currentDraftName = 'Untitled-1';
+    lastAutoSaveTime = null;
+    document.getElementById('doc-name').textContent = currentDraftName;
+    try { localStorage.removeItem(AUTOSAVE_KEY); } catch(_) {}
+    history.splice(0); historyIdx = -1;
+    recordChange();
+    render();
+  });
+
   document.getElementById('btn-undo').addEventListener('click', undo);
   document.getElementById('btn-redo').addEventListener('click', redo);
 
@@ -1197,7 +1215,25 @@ function renderGridDOM(host, g, opts={}) {
      Init
      ═══════════════════════════════════════════════ */
   state.grid = makeBlankGrid(15, 15);
-  recordChange(); // seed history with blank state
+
+  // Restore last autosave if one exists
+  try {
+    const saved = JSON.parse(localStorage.getItem(AUTOSAVE_KEY) || 'null');
+    if (saved && saved.grid && saved.rows && saved.cols) {
+      deserializeState(saved);
+      currentDraftName = saved.name || 'Untitled-1';
+      lastAutoSaveTime = saved.savedAt || null;
+      // Sync UI chips/labels to restored size
+      document.querySelectorAll('#size-chips .chip').forEach(c =>
+        c.classList.toggle('active', c.dataset.size === String(state.rows))
+      );
+      document.getElementById('grid-preset-name').textContent = PRESETS[state.rows] || 'Custom';
+      document.getElementById('grid-size-label').textContent  = `${state.cols} × ${state.rows}`;
+      document.getElementById('doc-name').textContent = currentDraftName;
+    }
+  } catch(_) {}
+
+  recordChange(); // seed history with initial (possibly restored) state
   render();
 
 })();
