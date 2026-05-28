@@ -215,6 +215,11 @@
     font-weight: 600; font-size: 19px; color: var(--ink); letter-spacing: 0.01em; padding-top: 4px; pointer-events: none;
   }
   .cell .rebus { font-size: 10px; letter-spacing: 0.02em; padding-top: 5px; }
+  /* ── Error highlights (unchecked squares / short words) ── */
+  /* Defined before active-word/selected so those always take precedence */
+  .cell.error-unchecked { background: #FFE4E4; }
+  .cell.error-short     { background: #FFBDBD; }
+
   .cell.active-word { background: var(--navy-tint); }
   .cell.selected    { background: var(--navy-soft); }
   .cell.selected .letter { color: var(--navy); }
@@ -550,6 +555,37 @@ function renderGridDOM(host, g, opts={}) {
   return nums;
 }
 
+function computeErrorCells(g, nums) {
+  const r = g.length, c = g[0].length;
+  const acr = entriesAcross(g, nums);
+  const dn  = entriesDown(g, nums);
+
+  const coveredAcross  = new Set();
+  const coveredDown    = new Set();
+  const shortWordCells = new Set(); // cells in 2-letter entries
+
+  for (const e of acr) {
+    for (let k = 0; k < e.len; k++) coveredAcross.add(`${e.row},${e.col + k}`);
+    if (e.len === 2) for (let k = 0; k < e.len; k++) shortWordCells.add(`${e.row},${e.col + k}`);
+  }
+  for (const e of dn) {
+    for (let k = 0; k < e.len; k++) coveredDown.add(`${e.row + k},${e.col}`);
+    if (e.len === 2) for (let k = 0; k < e.len; k++) shortWordCells.add(`${e.row + k},${e.col}`);
+  }
+
+  // Unchecked: any white cell not covered by BOTH an across and a down entry
+  const uncheckedCells = new Set();
+  for (let i = 0; i < r; i++) {
+    for (let j = 0; j < c; j++) {
+      if (g[i][j].black) continue;
+      const key = `${i},${j}`;
+      if (!(coveredAcross.has(key) && coveredDown.has(key))) uncheckedCells.add(key);
+    }
+  }
+
+  return { uncheckedCells, shortWordCells };
+}
+
 /* ═══════════════════════════════════════════════
    Live app
    ═══════════════════════════════════════════════ */
@@ -627,6 +663,14 @@ function renderGridDOM(host, g, opts={}) {
     const nums      = numberGrid(state.grid);
     const activeWord = state.selected ? getWordCells(state.selected[0], state.selected[1], state.direction) : [];
     renderGridDOM(gridHost, state.grid, {activeWord, selected: state.selected});
+
+    // Apply error highlights (unchecked squares + 2-letter words)
+    const { uncheckedCells, shortWordCells } = computeErrorCells(state.grid, nums);
+    gridHost.querySelectorAll('.cell:not(.black)').forEach(el => {
+      const key = `${el.dataset.r},${el.dataset.c}`;
+      if (shortWordCells.has(key))  el.classList.add('error-short');
+      else if (uncheckedCells.has(key)) el.classList.add('error-unchecked');
+    });
 
     // Counts
     const acr = entriesAcross(state.grid, nums);
