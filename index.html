@@ -98,12 +98,14 @@
   .panel-right { border-left:  1px solid var(--rule); }
   .panel-center {
     background: var(--app-bg);
+    overflow: auto;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    justify-content: center;
+    align-items: flex-start;
+    justify-content: flex-start;
     position: relative;
     min-height: 0;
+    padding: 20px 24px;
   }
 
   /* ── Sections ── */
@@ -193,8 +195,10 @@
   .meta-row b { color: var(--ink); font-weight: 500; }
 
   /* ── Grid ── */
-  .grid-wrap { display: flex; flex-direction: column; align-items: center; gap: 18px; }
-  .grid-title { font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--ink-2); letter-spacing: -0.005em; }
+  /* align-items:stretch so direction-bar and meta-row fill the grid width automatically */
+  .grid-wrap { display: flex; flex-direction: column; align-items: stretch; gap: 18px; margin: auto; width: fit-content; }
+  /* Title and grid are centered (exempt from stretch) */
+  .grid-title { font-family: var(--font-display); font-size: 16px; font-weight: 500; color: var(--ink-2); letter-spacing: -0.005em; text-align: center; align-self: center; }
   .grid-title .sep  { color: var(--ink-quiet); margin: 0 8px; }
   .grid-title .meta { color: var(--ink-quiet); font-family: var(--font-ui); font-size: 12px; font-weight: 500; }
 
@@ -206,15 +210,16 @@
     border: 2.5px solid var(--rule-strong);
     background: var(--rule-strong);
     gap: 1px;
+    align-self: center; /* exempt from grid-wrap's align-items:stretch */
   }
   .cell { background: #fff; position: relative; cursor: pointer; user-select: none; transition: background .08s; }
   .cell.black { background: var(--ink); }
-  .cell .num  { position: absolute; top: 2px; left: 3px; font-size: 9px; font-weight: 500; color: var(--ink-2); line-height: 1; font-feature-settings: "tnum" 1; pointer-events: none; }
+  .cell .num  { position: absolute; top: 2px; left: 3px; font-size: max(7px, calc(var(--cell) * 0.24)); font-weight: 500; color: var(--ink-2); line-height: 1; font-feature-settings: "tnum" 1; pointer-events: none; }
   .cell .letter {
     position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    font-weight: 600; font-size: 19px; color: var(--ink); letter-spacing: 0.01em; padding-top: 4px; pointer-events: none;
+    font-weight: 600; font-size: calc(var(--cell) * 0.52); color: var(--ink); letter-spacing: 0.01em; padding-top: 4px; pointer-events: none;
   }
-  .cell .rebus { font-size: 10px; letter-spacing: 0.02em; padding-top: 5px; }
+  .cell .rebus { font-size: max(8px, calc(var(--cell) * 0.28)); letter-spacing: 0.02em; padding-top: 5px; }
   /* ── Error highlights (unchecked squares / short words) ── */
   /* Defined before active-word/selected so those always take precedence */
   .cell.error-unchecked { background: #FFE4E4; }
@@ -232,8 +237,29 @@
   .direction-bar { display: flex; align-items: center; gap: 12px; color: var(--ink-muted); font-size: 12px; }
   .dir-pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid var(--rule-2); border-radius: var(--radius); font-weight: 500; color: var(--ink); background: #fff; cursor: pointer; }
   .dir-pill .arrow { color: var(--navy); font-weight: 600; }
-  .clue-preview { font-style: italic; color: var(--ink-2); max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .clue-preview { flex: 1; font-style: italic; color: var(--ink-2); max-width: 460px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .clue-preview .num { font-style: normal; font-weight: 600; color: var(--ink); margin-right: 6px; }
+  /* ── Floating zoom widget (bottom-right of center panel) ── */
+  .zoom-float {
+    position: absolute; bottom: 14px; right: 16px; z-index: 5;
+    display: flex; align-items: center; gap: 2px;
+    background: var(--app-bg); border: 1px solid var(--rule-2);
+    border-radius: var(--radius); padding: 3px 6px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.09);
+  }
+  .zoom-float .zoom-btn {
+    width: 22px; height: 22px; border: none; background: transparent;
+    border-radius: var(--radius); font-size: 15px; font-weight: 500; line-height: 1;
+    color: var(--ink-2); cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: background .12s, color .12s;
+  }
+  .zoom-float .zoom-btn:hover  { background: var(--hover); color: var(--ink); }
+  .zoom-float .zoom-btn:active { background: var(--pressed); }
+  .zoom-float .zoom-label {
+    font-size: 11px; color: var(--ink-muted); font-feature-settings: "tnum" 1;
+    min-width: 30px; text-align: center; cursor: pointer; user-select: none;
+  }
+  .zoom-float .zoom-label:hover { color: var(--ink); }
 
   /* ── Clue list (right panel) ── */
   .clue-tabs { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--rule); }
@@ -452,7 +478,7 @@
           <span class="sep">·</span>
           <span class="meta" id="grid-size-label">15 × 15</span>
         </div>
-        <div class="direction-bar">
+        <div class="direction-bar" id="direction-bar">
           <div class="dir-pill" id="dir-pill">
             <span class="arrow" id="dir-arrow">→</span>
             <span id="dir-name">Across</span>
@@ -463,10 +489,16 @@
           </div>
         </div>
         <div class="grid" id="grid-live" style="--cols:15; --rows:15;"></div>
-        <div class="meta-row" style="width:540px; margin-top:4px;">
+        <div class="meta-row" id="grid-meta-row" style="margin-top:4px;">
           <span><b id="word-len">0</b> letters · <span id="cross-info">— crossings</span></span>
           <span><span class="kbd">Tab</span> direction · <span class="kbd">Shift</span>+<span class="kbd">Enter</span> rebus · <span class="kbd">⌫</span> erase</span>
         </div>
+      </div>
+      <!-- Floating zoom widget -->
+      <div class="zoom-float">
+        <button class="zoom-btn" id="zoom-out" title="Zoom out">−</button>
+        <span class="zoom-label" id="zoom-label" title="Double-click to reset">Fit</span>
+        <button class="zoom-btn" id="zoom-in" title="Zoom in">+</button>
       </div>
     </main>
 
@@ -656,13 +688,60 @@ function computeErrorCells(g, nums) {
   document.getElementById('tab-across').addEventListener('click', () => setActiveTab('A'));
   document.getElementById('tab-down').addEventListener('click',   () => setActiveTab('D'));
 
-  /* ── Render ── */
+  /* ── Zoom & cell sizing ── */
   const gridHost = document.getElementById('grid-live');
+  let cellZoom = 1.0;
+  const ZOOM_MIN = 0.4, ZOOM_MAX = 2.5, ZOOM_STEP = 0.15;
 
+  function computeAutoFitCellSize() {
+    const centerEl = document.querySelector('.panel-center');
+    if (!centerEl) return 36;
+    // Available space: panel minus padding (20px top+bottom, 24px left+right)
+    const availW = centerEl.clientWidth  - 48;
+    const availH = centerEl.clientHeight - 40;
+    // Subtract non-grid elements in grid-wrap: title ~28px + dir-bar ~32px + meta-row ~22px + gaps ~54px
+    const overhead = 28 + 32 + 22 + 54;
+    const cellFromW = Math.floor(availW / state.cols);
+    const cellFromH = Math.floor((availH - overhead) / state.rows);
+    return Math.max(16, Math.min(cellFromW, cellFromH, 48));
+  }
+
+  function applyCellSize() {
+    const base = computeAutoFitCellSize();
+    const size = Math.round(Math.max(16, Math.min(base * cellZoom, 64)));
+    gridHost.style.setProperty('--cell', size + 'px');
+    // Update zoom label
+    document.getElementById('zoom-label').textContent =
+      cellZoom === 1.0 ? 'Fit' : Math.round(cellZoom * 100) + '%';
+  }
+
+  document.getElementById('zoom-in').addEventListener('click', () => {
+    cellZoom = Math.min(ZOOM_MAX, parseFloat((cellZoom + ZOOM_STEP).toFixed(2)));
+    applyCellSize();
+  });
+  document.getElementById('zoom-out').addEventListener('click', () => {
+    cellZoom = Math.max(ZOOM_MIN, parseFloat((cellZoom - ZOOM_STEP).toFixed(2)));
+    applyCellSize();
+  });
+  // Reset zoom on double-click of label
+  document.getElementById('zoom-label').addEventListener('dblclick', () => {
+    cellZoom = 1.0; applyCellSize();
+  });
+  document.getElementById('zoom-label').title = 'Double-click to reset to fit';
+  document.getElementById('zoom-label').style.cursor = 'pointer';
+
+  // Refit on window/panel resize
+  const centerPanel = document.querySelector('.panel-center');
+  if (window.ResizeObserver) {
+    new ResizeObserver(() => applyCellSize()).observe(centerPanel);
+  }
+
+  /* ── Render ── */
   function render() {
     const nums      = numberGrid(state.grid);
     const activeWord = state.selected ? getWordCells(state.selected[0], state.selected[1], state.direction) : [];
     renderGridDOM(gridHost, state.grid, {activeWord, selected: state.selected});
+    applyCellSize(); // size the grid to fit the panel
 
     // Apply error highlights (unchecked squares + 2-letter words)
     const { uncheckedCells, shortWordCells } = computeErrorCells(state.grid, nums);
@@ -820,6 +899,94 @@ function computeErrorCells(g, nums) {
     return null;
   }
 
+  /* ── Rebus input ── */
+  function showRebusInput(r, c) {
+    // Remove any existing rebus input
+    const existing = document.getElementById('rebus-input-wrap');
+    if (existing) existing.remove();
+
+    // Find the cell element in the DOM
+    const cellEl = gridHost.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+    if (!cellEl) return;
+
+    // Build a small input overlaid on the cell
+    const wrap = document.createElement('div');
+    wrap.id = 'rebus-input-wrap';
+    wrap.style.cssText = `
+      position: absolute;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      pointer-events: none;
+    `;
+
+    const label = document.createElement('div');
+    label.textContent = 'Rebus';
+    label.style.cssText = `
+      font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--navy);
+      background: var(--navy-pale); border: 1px solid var(--navy-soft);
+      border-radius: 3px; padding: 2px 7px; white-space: nowrap;
+      pointer-events: none;
+    `;
+
+    const inp = document.createElement('input');
+    inp.id = 'rebus-input';
+    inp.value = state.grid[r][c].letter || '';
+    inp.maxLength = 8;
+    inp.autocomplete = 'off';
+    inp.spellcheck = false;
+    inp.style.cssText = `
+      pointer-events: all;
+      width: 64px; height: 30px;
+      border: 2px solid var(--navy); border-radius: var(--radius);
+      box-shadow: 0 0 0 3px var(--navy-pale);
+      background: #fff; color: var(--ink);
+      font-family: var(--font-ui); font-size: 14px; font-weight: 700;
+      text-align: center; letter-spacing: 0.08em; text-transform: uppercase;
+      outline: none; padding: 0 4px;
+    `;
+
+    wrap.appendChild(label);
+    wrap.appendChild(inp);
+
+    // Position the wrap below (or above) the cell
+    const gridRect  = gridHost.getBoundingClientRect();
+    const cellRect  = cellEl.getBoundingClientRect();
+    const panelRect = document.querySelector('.panel-center').getBoundingClientRect();
+
+    // Coordinates relative to panel-center (which is position:relative)
+    const scrollLeft = document.querySelector('.panel-center').scrollLeft;
+    const scrollTop  = document.querySelector('.panel-center').scrollTop;
+    const left = cellRect.left - panelRect.left + scrollLeft + cellRect.width / 2;
+    const top  = cellRect.bottom - panelRect.top + scrollTop + 6;
+
+    wrap.style.left = left + 'px';
+    wrap.style.top  = top  + 'px';
+    wrap.style.transform = 'translateX(-50%)';
+
+    document.querySelector('.panel-center').appendChild(wrap);
+    inp.focus();
+    inp.select();
+
+    function commit() {
+      const val = inp.value.trim().toUpperCase().replace(/[^A-Z]/g, '');
+      wrap.remove();
+      if (val === state.grid[r][c].letter) return; // no change
+      recordChange();
+      state.grid[r][c].letter = val;
+      render();
+    }
+
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { wrap.remove(); }
+    });
+    inp.addEventListener('blur', commit);
+  }
+
   /* ── Keyboard ── */
   document.addEventListener('keydown', e => {
     // Undo / Redo via keyboard
@@ -830,6 +997,11 @@ function computeErrorCells(g, nums) {
     if (document.activeElement&&document.activeElement.tagName==='INPUT') return;
     const [r,c]=state.selected;
 
+    if (e.key==='Enter' && e.shiftKey) {
+      e.preventDefault();
+      if (!state.grid[r][c].black) showRebusInput(r, c);
+      return;
+    }
     if (e.key==='Tab') {
       e.preventDefault();
       state.direction=state.direction==='A'?'D':'A';
